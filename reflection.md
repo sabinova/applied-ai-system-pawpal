@@ -15,7 +15,7 @@
 **b. Design changes**
 
 - Did your design change during implementation?
-    - Yes, my design changed during the skeleton review. I made two additions based on identifying potential logic bottlenecks.
+    - Yes, the design changed during the skeleton review. I made two additions based on identifying potential logic bottlenecks.
 - If yes, describe at least one change and why you made it.
     - First, I added a pet_name attribute to the Task class. The original design had no way to trace a Task back to the Pet it belonged to. This became a problem when I considered how filter_by_pet() would work — once the Scheduler collects all tasks into a flat list via Owner.get_all_tasks(), there was no field to check against a pet's name. Adding pet_name directly to the Task gives every task a built-in reference to its owner pet, keeping the filtering logic simple.
     - Second, I added a mark_task_complete(task) method to the Scheduler class. The original skeleton only had mark_complete() on the Task itself, which just flips a boolean. But the project requires recurring tasks to automatically generate a new instance when completed. If the user calls task.mark_complete() directly, the Scheduler never gets involved and recurrence is silently skipped. The new method acts as the proper entry point — it calls task.mark_complete() internally and then triggers handle_recurring() if the task is daily or weekly.
@@ -26,7 +26,9 @@
 **a. Constraints and priorities**
 
 - What constraints does your scheduler consider (for example: time, priority, preferences)?
+    - My scheduler considers three main constraints: scheduled time, priority level, and task duration. Time is the primary constraint because a daily care plan must follow chronological order — the owner needs to know what comes first. Priority acts as a secondary constraint, so when two tasks land at the same time slot, the high-priority task (like medication) surfaces before a low-priority one (like grooming). Duration feeds into conflict detection — the scheduler calculates each task's full time window (start time + duration) to determine if tasks physically overlap, not just if they start at the same moment. I decided time mattered most because the core use case is a "what do I do next?" daily plan, and priority mattered second because missing a medication is more consequential than skipping an enrichment activity.
 - How did you decide which constraints mattered most?
+    - My scheduler's conflict detection uses a nested loop that compares every pair of tasks (O(n²) time complexity) to find duration-based overlaps. This means if there are 10 tasks, the system makes 45 comparisons; if there are 20 tasks, it makes 190. The tradeoff is performance versus simplicity — a sorted-interval sweep algorithm would be faster at scale (O(n log n)), but the nested loop is far easier to read, debug, and maintain. This tradeoff is reasonable because a typical pet owner has 5 to 15 daily tasks, making the performance difference negligible. Clarity and correctness are more valuable than speed at this scale.
 
 **b. Tradeoffs**
 

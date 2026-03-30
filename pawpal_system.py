@@ -4,7 +4,7 @@ Logic layer: all backend classes live here.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 
 @dataclass
@@ -17,10 +17,22 @@ class Task:
     pet_name: str = ""     # Tracks which pet this task belongs to
     frequency: str = "once"  # "once", "daily", or "weekly"
     is_complete: bool = False
+    date: str = ""         # Format: "YYYY-MM-DD" for recurring task tracking
+
+    def __post_init__(self):
+        """Auto-set today's date if no date is provided."""
+        if not self.date:
+            self.date = date.today().isoformat()
 
     def mark_complete(self) -> None:
         """Mark this task as completed."""
         self.is_complete = True
+
+    def get_end_time(self) -> str:
+        """Calculate the end time based on start time and duration."""
+        start = datetime.strptime(self.time, "%H:%M")
+        end = start + timedelta(minutes=self.duration_minutes)
+        return end.strftime("%H:%M")
 
 
 @dataclass
@@ -62,19 +74,30 @@ class Owner:
 class Scheduler:
     """The 'Brain' that retrieves, organizes, and manages tasks across pets."""
 
+    # Priority weight map: higher number = higher urgency = sorted first
+    PRIORITY_WEIGHT = {"high": 0, "medium": 1, "low": 2}
+
     def __init__(self, owner: Owner):
         """Initialize the scheduler with an owner."""
         self.owner = owner
 
     def get_daily_schedule(self) -> list:
-        """Return today's schedule: all incomplete tasks sorted by time."""
+        """Return today's schedule: all incomplete tasks sorted by time, then priority."""
         all_tasks = self.owner.get_all_tasks()
         pending = self.filter_by_status(all_tasks, complete=False)
         return self.sort_by_time(pending)
 
     def sort_by_time(self, tasks: list) -> list:
-        """Sort a list of tasks by their scheduled time using HH:MM comparison."""
-        return sorted(tasks, key=lambda t: t.time)
+        """Sort tasks by time first, then by priority (high before low) as tiebreaker.
+
+        Uses a tuple key with lambda: (time_string, priority_weight).
+        Since 'high' maps to 0 and 'low' maps to 2, high-priority tasks
+        appear first when two tasks share the same time slot.
+        """
+        return sorted(
+            tasks,
+            key=lambda t: (t.time, self.PRIORITY_WEIGHT.get(t.priority, 1))
+        )
 
     def filter_by_status(self, tasks: list, complete: bool = False) -> list:
         """Filter tasks by completion status."""
@@ -85,24 +108,59 @@ class Scheduler:
         return [t for t in tasks if t.pet_name == pet_name]
 
     def detect_conflicts(self, tasks: list) -> list:
-        """Detect tasks scheduled at the same time. Returns warning messages."""
+        """Detect overlapping tasks using duration-aware time window comparison.
+
+        Instead of only flagging exact time matches, this checks whether
+        one task's start time falls within another task's time window.
+        A task running from 11:30 for 60 minutes (ending 12:30) conflicts
+        with a task starting at 12:00.
+        """
         warnings = []
         for i in range(len(tasks)):
             for j in range(i + 1, len(tasks)):
-                if tasks[i].time == tasks[j].time:
+                if self._tasks_overlap(tasks[i], tasks[j]):
                     warnings.append(
-                        f"⚠ Conflict: '{tasks[i].description}' ({tasks[i].pet_name}) "
-                        f"and '{tasks[j].description}' ({tasks[j].pet_name}) "
-                        f"are both scheduled at {tasks[i].time}"
+                        f"⚠ Conflict: '{tasks[i].description}' ({tasks[i].pet_name}, "
+                        f"{tasks[i].time}-{tasks[i].get_end_time()}) overlaps with "
+                        f"'{tasks[j].description}' ({tasks[j].pet_name}, "
+                        f"{tasks[j].time}-{tasks[j].get_end_time()})"
                     )
         return warnings
 
+    def _tasks_overlap(self, task_a: Task, task_b: Task) -> bool:
+        """Check if two tasks' time windows overlap.
+
+        Two windows overlap when each one starts before the other ends.
+        Using datetime objects for accurate minute-level comparison.
+        """
+        a_start = datetime.strptime(task_a.time, "%H:%M")
+        a_end = a_start + timedelta(minutes=task_a.duration_minutes)
+        b_start = datetime.strptime(task_b.time, "%H:%M")
+        b_end = b_start + timedelta(minutes=task_b.duration_minutes)
+
+        # Overlap condition: A starts before B ends AND B starts before A ends
+        return a_start < b_end and b_start < a_end
+
     def handle_recurring(self, task: Task):
-        """If a task is daily/weekly, create a new instance for the next occurrence."""
+        """Create a new task for the next occurrence using timedelta.
+
+        Daily tasks get scheduled for tomorrow (today + 1 day).
+        Weekly tasks get scheduled for next week (today + 7 days).
+        The new task is automatically added to the correct pet.
+        """
         if task.frequency == "once":
             return None
 
-        # Build new task with same details but reset completion
+        # Calculate the next date using timedelta
+        current_date = date.fromisoformat(task.date)
+        if task.frequency == "daily":
+            next_date = current_date + timedelta(days=1)
+        elif task.frequency == "weekly":
+            next_date = current_date + timedelta(days=7)
+        else:
+            return None
+
+        # Build new task with the calculated next date
         new_task = Task(
             description=task.description,
             time=task.time,
@@ -111,9 +169,10 @@ class Scheduler:
             pet_name=task.pet_name,
             frequency=task.frequency,
             is_complete=False,
+            date=next_date.isoformat(),
         )
 
-        # Find the right pet and attach the new task
+        # Find the correct pet and attach the new task
         for pet in self.owner.pets:
             if pet.name == task.pet_name:
                 pet.add_task(new_task)
