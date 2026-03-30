@@ -6,6 +6,10 @@
 
 <img src='/PawPal_demo.gif' title='PawPal App' width='' alt='PawPal App' class='center-block' /></a>
 
+## 📐 System Architecture (UML)
+
+![PawPal+ UML Class Diagram](PawPal_diagram.png)
+
 ## Features
 
 **Owner and Pet Management** — Register your name, add multiple pets with species and age info, and see a live summary table of all your pets and their task counts.
