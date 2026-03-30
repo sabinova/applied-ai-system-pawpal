@@ -5,7 +5,12 @@
 **a. Initial design**
 
 - Briefly describe your initial UML design.
+    - My UML design uses four classes. Task is the core data unit holding a description, scheduled time, duration, priority, frequency, and completion status. Pet stores pet info (name, species, age) and owns a list of Tasks. Owner holds the owner's name and a list of Pets, with a get_all_tasks() method that collects tasks across all pets. Scheduler is the behavioral "brain" — it takes an Owner reference and provides sorting, filtering, conflict detection, and recurring task logic.
 - What classes did you include, and what responsibilities did you assign to each?
+    - The three core classes identified are: 
+        1. Add a pet to their profile — The owner should be able to register a pet with basic info like name, species, and age.
+        2.  Schedule a care task for a pet — The owner should be able to create tasks like walks, feedings, medications, or grooming appointments, each with a scheduled time, duration, and priority level.
+        3. View today's daily care schedule — The system should generate an organized daily plan that sorts and prioritizes all tasks across all pets, showing the owner what to do and when.
 
 **b. Design changes**
 
