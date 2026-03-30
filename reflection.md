@@ -15,8 +15,10 @@
 **b. Design changes**
 
 - Did your design change during implementation?
+    - Yes, my design changed during the skeleton review. I made two additions based on identifying potential logic bottlenecks.
 - If yes, describe at least one change and why you made it.
-
+    - First, I added a pet_name attribute to the Task class. The original design had no way to trace a Task back to the Pet it belonged to. This became a problem when I considered how filter_by_pet() would work — once the Scheduler collects all tasks into a flat list via Owner.get_all_tasks(), there was no field to check against a pet's name. Adding pet_name directly to the Task gives every task a built-in reference to its owner pet, keeping the filtering logic simple.
+    - Second, I added a mark_task_complete(task) method to the Scheduler class. The original skeleton only had mark_complete() on the Task itself, which just flips a boolean. But the project requires recurring tasks to automatically generate a new instance when completed. If the user calls task.mark_complete() directly, the Scheduler never gets involved and recurrence is silently skipped. The new method acts as the proper entry point — it calls task.mark_complete() internally and then triggers handle_recurring() if the task is daily or weekly.
 ---
 
 ## 2. Scheduling Logic and Tradeoffs
