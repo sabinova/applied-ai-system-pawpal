@@ -34,6 +34,18 @@ PawPal+ uses several algorithms to create intelligent daily plans:
 
 **Flexible filtering** — Tasks can be filtered by completion status or by pet name, allowing the owner to focus on specific views of their schedule.
 
+## Testing PawPal+
+
+The project includes an automated test suite with 19 tests covering all core behaviors.
+
+```bash
+python -m pytest tests/test_pawpal.py -v
+```
+
+The test suite verifies: task completion and default date assignment, pet-task linking and auto-stamping of `pet_name`, chronological sorting with priority-based tiebreaking, daily and weekly recurrence logic using `timedelta` (confirming correct next-occurrence dates), duration-aware conflict detection (overlapping windows, exact matches, and no false positives), and edge cases like empty schedules, non-existent pet filtering, and completed task exclusion.
+
+**Confidence Level: ⭐⭐⭐⭐ (4/5)** — The suite covers all happy paths and key edge cases. The one area that would benefit from more testing is multi-day scheduling scenarios and tasks that span midnight, which would require additional date-handling logic beyond the current scope.
+
 ## Getting started
 
 ### Setup
