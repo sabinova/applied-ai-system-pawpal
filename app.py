@@ -7,21 +7,16 @@ st.title("🐾 PawPal+")
 st.caption("A smart pet care management system that helps you stay on top of your pet's daily routine.")
 
 # --- Session State: Persistent "Memory" ---
-# This block only runs once on the first page load.
-# On every subsequent rerun (button click, form submit, etc.),
-# Streamlit finds these keys already in session_state and skips creation.
 if "owner" not in st.session_state:
     st.session_state.owner = Owner(name="")
     st.session_state.scheduler = Scheduler(owner=st.session_state.owner)
 
-# Shortcuts for cleaner code below
 owner = st.session_state.owner
 scheduler = st.session_state.scheduler
 
 # --- Section 1: Owner Setup ---
 st.subheader("👤 Owner Info")
 owner_name = st.text_input("Your name", value=owner.name)
-# Update the owner's name whenever the text input changes
 owner.name = owner_name
 
 st.divider()
@@ -40,7 +35,6 @@ with st.form("add_pet_form", clear_on_submit=True):
     add_pet = st.form_submit_button("Add Pet")
 
     if add_pet and pet_name:
-        # Create a Pet object and attach it to the Owner
         new_pet = Pet(name=pet_name, species=species, age=age)
         owner.add_pet(new_pet)
         st.success(f"Added {pet_name} the {species}!")
@@ -67,7 +61,6 @@ st.subheader("📋 Add a Task")
 
 if owner.pets:
     with st.form("add_task_form", clear_on_submit=True):
-        # Let the user pick which pet this task is for
         pet_names = [pet.name for pet in owner.pets]
         selected_pet_name = st.selectbox("Assign to pet", pet_names)
 
@@ -84,10 +77,7 @@ if owner.pets:
         add_task = st.form_submit_button("Add Task")
 
         if add_task and task_desc:
-            # Convert the time_input object to "HH:MM" string format
             time_str = task_time.strftime("%H:%M")
-
-            # Create the Task object
             new_task = Task(
                 description=task_desc,
                 time=time_str,
@@ -95,8 +85,6 @@ if owner.pets:
                 priority=priority,
                 frequency=frequency,
             )
-
-            # Find the selected pet and add the task to it
             for pet in owner.pets:
                 if pet.name == selected_pet_name:
                     pet.add_task(new_task)
@@ -107,19 +95,33 @@ else:
 
 st.divider()
 
-# --- Section 4: Daily Schedule ---
+# --- Section 4: Daily Schedule with Smart Features ---
 st.subheader("📅 Today's Schedule")
 
+# Filter controls — let the user narrow the view by pet
+if owner.pets:
+    filter_options = ["All Pets"] + [pet.name for pet in owner.pets]
+    selected_filter = st.selectbox("Filter by pet", filter_options)
+
 if st.button("Generate Schedule"):
-    schedule = scheduler.get_daily_schedule()
+    all_tasks = owner.get_all_tasks()
+
+    # Apply pet filter if the user selected a specific pet
+    if owner.pets and selected_filter != "All Pets":
+        all_tasks = scheduler.filter_by_pet(all_tasks, selected_filter)
+
+    # Get the sorted schedule (incomplete tasks only, sorted by time then priority)
+    schedule = scheduler.sort_by_time(
+        scheduler.filter_by_status(all_tasks, complete=False)
+    )
 
     if schedule:
-        # Display the sorted schedule as a formatted table
+        # Build the schedule table with time windows and priority icons
         schedule_data = []
         for task in schedule:
             priority_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(task.priority, "⚪")
             schedule_data.append({
-                "Time": task.time,
+                "Time": f"{task.time} - {task.get_end_time()}",
                 "Priority": priority_icon,
                 "Pet": task.pet_name,
                 "Task": task.description,
@@ -128,13 +130,69 @@ if st.button("Generate Schedule"):
             })
         st.table(schedule_data)
 
-        # Check for conflicts and show warnings
-        all_tasks = owner.get_all_tasks()
-        conflicts = scheduler.detect_conflicts(all_tasks)
+        # Run conflict detection on ALL incomplete tasks (not just filtered)
+        pending_all = scheduler.filter_by_status(owner.get_all_tasks(), complete=False)
+        conflicts = scheduler.detect_conflicts(pending_all)
         if conflicts:
             for warning in conflicts:
                 st.warning(warning)
         else:
             st.success("No scheduling conflicts detected!")
     else:
-        st.info("No tasks scheduled yet. Add some tasks above!")
+        st.info("No pending tasks to display. Add some tasks above!")
+
+st.divider()
+
+# --- Section 5: Mark Tasks Complete ---
+st.subheader("✅ Complete a Task")
+
+if owner.pets:
+    # Build a list of all incomplete tasks the user can mark as done
+    incomplete_tasks = scheduler.filter_by_status(owner.get_all_tasks(), complete=False)
+
+    if incomplete_tasks:
+        # Create readable labels for the dropdown
+        task_labels = [
+            f"[{t.pet_name}] {t.time} — {t.description} ({t.frequency})"
+            for t in incomplete_tasks
+        ]
+        selected_label = st.selectbox("Select a task to complete", task_labels)
+
+        if st.button("Mark Complete"):
+            # Find the matching task by its label index
+            task_index = task_labels.index(selected_label)
+            task_to_complete = incomplete_tasks[task_index]
+
+            # Use the scheduler's smart completion (handles recurrence)
+            scheduler.mark_task_complete(task_to_complete)
+
+            # Show different messages based on whether recurrence was triggered
+            if task_to_complete.frequency in ("daily", "weekly"):
+                st.success(
+                    f"Completed '{task_to_complete.description}'! "
+                    f"A new {task_to_complete.frequency} task has been auto-scheduled."
+                )
+            else:
+                st.success(f"Completed '{task_to_complete.description}'!")
+
+            st.rerun()
+    else:
+        st.info("All tasks are complete! Great job! 🎉")
+
+st.divider()
+
+# --- Section 6: Completed Tasks Log ---
+st.subheader("📜 Completed Tasks")
+completed = scheduler.filter_by_status(owner.get_all_tasks(), complete=True)
+if completed:
+    completed_data = []
+    for task in completed:
+        completed_data.append({
+            "Pet": task.pet_name,
+            "Task": task.description,
+            "Was scheduled": task.time,
+            "Date": task.date,
+        })
+    st.table(completed_data)
+else:
+    st.caption("No completed tasks yet.")
