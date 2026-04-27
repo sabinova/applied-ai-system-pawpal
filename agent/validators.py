@@ -41,17 +41,145 @@ from pydantic import BaseModel, Field, ValidationError, field_validator, model_v
 # Lowercased keyword set; we accept the description if at least one of
 # these appears as a whole word. Stored as a tuple for stable ordering
 # in error messages and so callers can introspect what's checked.
-PET_KEYWORDS: tuple[str, ...] = (
+#
+# The set is intentionally split into three buckets so it's obvious
+# what counts as "pet vocabulary":
+#
+#   * SPECIES_KEYWORDS  - the animal itself ("dog", "cat", ...).
+#   * BREED_KEYWORDS    - common dog/cat breeds. Owners frequently say
+#                         "Australian Shepherd" or "Labrador" and never
+#                         use the bare word "dog", so without these the
+#                         guardrail falsely rejects valid descriptions.
+#   * PET_CARE_KEYWORDS - vocabulary that strongly correlates with pet
+#                         ownership ("leash", "vet", "paw", "kibble"...).
+#
+# All three are merged into PET_KEYWORDS for backwards compatibility -
+# external callers and tests only need to know about the union.
+SPECIES_KEYWORDS: tuple[str, ...] = (
     "pet",
     "dog",
+    "doggo",
+    "doggy",
     "cat",
+    "kitty",
     "bird",
     "fish",
     "rabbit",
+    "bunny",
     "hamster",
+    "gerbil",
+    "ferret",
+    "guinea",  # "guinea pig" - "pig" alone is too ambiguous
+    "lizard",
+    "snake",
+    "turtle",
+    "tortoise",
+    "parrot",
+    "parakeet",
+    "cockatiel",
+    "canary",
+    "reptile",
+    "rodent",
+    "feline",
+    "canine",
     "animal",
     "puppy",
     "kitten",
+)
+
+BREED_KEYWORDS: tuple[str, ...] = (
+    # Dog breeds - the most common ones owners actually type.
+    "shepherd",
+    "retriever",
+    "labrador",
+    "poodle",
+    "terrier",
+    "bulldog",
+    "corgi",
+    "husky",
+    "dachshund",
+    "beagle",
+    "chihuahua",
+    "dalmatian",
+    "doberman",
+    "rottweiler",
+    "mastiff",
+    "collie",
+    "spaniel",
+    "pitbull",
+    "boxer",
+    "pug",
+    "shihtzu",
+    "maltese",
+    "akita",
+    "samoyed",
+    "pomeranian",
+    "schnauzer",
+    "greyhound",
+    "whippet",
+    "aussie",  # short for Australian Shepherd / Aussie
+    # Cat breeds.
+    "persian",
+    "siamese",
+    "tabby",
+    "ragdoll",
+    "bengal",
+    "sphynx",
+    "burmese",
+)
+
+PET_CARE_KEYWORDS: tuple[str, ...] = (
+    "leash",
+    "collar",
+    "kennel",
+    "crate",
+    "litter",
+    "paw",
+    "paws",
+    "fur",
+    "furry",
+    "tail",
+    "whiskers",
+    "feathers",
+    "scales",
+    "fin",
+    "fins",
+    "vet",
+    "vets",
+    "veterinarian",
+    "veterinary",
+    "groom",
+    "grooming",
+    "neuter",
+    "neutered",
+    "spay",
+    "spayed",
+    "breed",
+    "breeds",
+    "kibble",
+    "chew",
+    "chews",
+    "fetch",
+    "purr",
+    "bark",
+    "meow",
+    "wag",
+    "muzzle",
+    "harness",
+    "treat",
+    "treats",
+    "obedience",
+    # Walks / walking are by far the most common signal in dog
+    # descriptions but "walk" alone is generic enough to need the
+    # whole-word boundary the matcher already enforces.
+    "walk",
+    "walks",
+    "walking",
+)
+
+# Public union, kept as PET_KEYWORDS so existing callers keep working.
+PET_KEYWORDS: tuple[str, ...] = (
+    SPECIES_KEYWORDS + BREED_KEYWORDS + PET_CARE_KEYWORDS
 )
 
 # Lowercased substrings that strongly suggest a prompt-injection attempt.

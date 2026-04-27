@@ -52,7 +52,7 @@ import logging
 import os
 import re
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Callable, Literal, Optional
 
 import anthropic
 from dotenv import load_dotenv
@@ -199,12 +199,24 @@ class ScheduleAgent:
         # at the top of each generate_schedule run so callers always see
         # the events from the most recent invocation.
         self.guardrail_log = AgentGuardrailLog()
+        # Optional per-run observer; populated by generate_schedule when
+        # the caller supplies a step_callback so the UI can stream the
+        # reasoning trace live without blocking on the final result.
+        self._step_callback: Optional[
+            Callable[[str, str, dict[str, Any]], None]
+        ] = None
 
     # ------------------------------------------------------------------
     # Public entry point
     # ------------------------------------------------------------------
 
-    def generate_schedule(self, user_description: str) -> dict:
+    def generate_schedule(
+        self,
+        user_description: str,
+        step_callback: Optional[
+            Callable[[str, str, dict[str, Any]], None]
+        ] = None,
+    ) -> dict:
         """Run the full four-step pipeline end-to-end with all three
         guardrail layers enforced.
 
@@ -225,10 +237,19 @@ class ScheduleAgent:
         ``InvalidInputError`` from Layer 1), so callers get a usable
         trace even on partial failure. Every result includes a
         ``guardrail_events`` list and a ``success`` boolean.
+
+        Args:
+            user_description: free-text pet description.
+            step_callback: optional ``fn(step_type, summary, details)``
+                fired after every recorded step. Useful for streaming
+                a live reasoning trace into a UI status container.
+                Exceptions raised inside the callback are logged and
+                suppressed so a flaky observer never breaks the agent.
         """
         self.steps = []
         self._planner_iterations = 0
         self.guardrail_log.reset()
+        self._step_callback = step_callback
         total_iterations = 0
         pet_profile: dict[str, Any] = {}
         draft: list[dict[str, Any]] = []
@@ -247,6 +268,9 @@ class ScheduleAgent:
                 {"layer": "input", "reason": message},
             )
             logger.warning("Input guardrail rejected description: %s", message)
+            # Drop the callback before raising so a subsequent run
+            # without one doesn't keep streaming into a stale observer.
+            self._step_callback = None
             raise InvalidInputError(message)
 
         # ---- step 1: analyze --------------------------------------------------
@@ -455,6 +479,10 @@ class ScheduleAgent:
         }
         if error is not None:
             result["error"] = error
+        # _build_result is the single exit point for every successful or
+        # partial run, so clear the per-run observer here. Any future run
+        # without a callback then sees the default (None) state.
+        self._step_callback = None
         return result
 
     # ------------------------------------------------------------------
@@ -607,6 +635,27 @@ class ScheduleAgent:
                             "is_error": is_error,
                         },
                     )
+                    # Surface the in-loop validate_schedule result as a
+                    # guardrail event whenever the tool reports conflicts.
+                    # The outer validate->revise loop only logs conflicts
+                    # that escape the planner; this captures the ones the
+                    # planner self-fixes too, so observers (graders, the
+                    # Streamlit "Guardrail Events" panel) can see all
+                    # guardrail activity in one place.
+                    if (
+                        not is_error
+                        and tool_name == "validate_schedule"
+                        and isinstance(result, dict)
+                        and result.get("has_conflicts")
+                    ):
+                        self.guardrail_log.record(
+                            "conflict_in_planner",
+                            {
+                                "iteration": iterations,
+                                "conflicts": result.get("conflicts", []),
+                                "task_count": result.get("task_count"),
+                            },
+                        )
                     tool_results.append(
                         {
                             "type": "tool_result",
@@ -867,10 +916,15 @@ class ScheduleAgent:
     # ------------------------------------------------------------------
 
     def _record_step(self, step_type: str, details: dict) -> None:
-        """Append a timestamped entry to ``self.steps``.
+        """Append a timestamped entry to ``self.steps`` and notify any
+        live observer registered via ``generate_schedule(step_callback=...)``.
 
         Each entry is a plain dict so it round-trips through ``json.dumps``
-        for UI display and test snapshots.
+        for UI display and test snapshots. The optional callback gets
+        ``(step_type, summary, details)`` so a Streamlit / CLI observer
+        can render a live trace without re-parsing the details payload.
+        Exceptions inside the callback are logged and swallowed so a
+        broken UI never breaks the pipeline.
         """
         self.steps.append(
             {
@@ -879,3 +933,75 @@ class ScheduleAgent:
                 "details": details,
             }
         )
+        callback = self._step_callback
+        if callback is not None:
+            try:
+                callback(step_type, self._summarize_step(step_type, details), details)
+            except Exception:
+                logger.exception("step_callback raised; suppressing")
+
+    @staticmethod
+    def _summarize_step(step_type: str, details: dict[str, Any]) -> str:
+        """Return a short, human-readable headline for a recorded step.
+
+        Used by the optional ``step_callback`` so observers don't have
+        to re-implement the same per-type formatting. Mirrors the
+        summaries shown by ``demo_agent.py`` for visual parity between
+        the CLI demo and the Streamlit UI.
+        """
+        details = details or {}
+
+        if step_type == "analyze":
+            profile = details.get("pet_profile", {}) or {}
+            return (
+                f"parsed profile: {profile.get('pet_name', '?')} "
+                f"({profile.get('species', '?')}, "
+                f"{profile.get('age', '?')}y, "
+                f"energy={profile.get('energy_level', '?')})"
+            )
+
+        if step_type == "tool_call":
+            tool = details.get("tool", "?")
+            flag = " [ERROR]" if details.get("is_error") else ""
+            return f"called {tool}(...){flag}"
+
+        if step_type == "validate":
+            result = details.get("result", {}) or {}
+            n_conflicts = len(result.get("conflicts", []) or [])
+            if result.get("has_conflicts"):
+                return (
+                    f"found {n_conflicts} conflict(s) in "
+                    f"{result.get('task_count', '?')} tasks"
+                )
+            return f"no conflicts in {result.get('task_count', '?')} tasks"
+
+        if step_type == "revise":
+            n_conflicts = len(details.get("input_conflicts", []) or [])
+            n_revised = len(details.get("revised_tasks", []) or [])
+            return f"revised {n_revised} tasks to resolve {n_conflicts} conflicts"
+
+        if step_type == "plan":
+            return (
+                f"drafted {len(details.get('tasks', []) or [])} tasks "
+                f"in {details.get('planner_iterations', '?')} planner step(s)"
+            )
+
+        if step_type == "quality_score":
+            quality = details.get("quality", {}) or {}
+            return f"overall score = {quality.get('overall_score', '?')}"
+
+        if step_type == "warning":
+            stage = details.get("stage", "?")
+            msg = details.get("message") or details.get("error") or ""
+            return f"stage={stage} {msg}".strip()
+
+        if step_type == "error":
+            stage = details.get("stage", "?")
+            return f"stage={stage} error={details.get('error', '?')}"
+
+        if step_type == "guardrail":
+            layer = details.get("layer", "?")
+            reason = details.get("reason") or details.get("error") or ""
+            return f"{layer} guardrail fired: {reason}".strip()
+
+        return ""
