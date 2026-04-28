@@ -7,9 +7,11 @@ Built on Anthropic's Claude with a four-step reasoning pipeline, three determini
 
 ## 📺 Demo
 
-![PawPal+ live demo](assets/demo.gif)
+🎥 **Video walkthrough** — end-to-end run of the Smart Schedule Generator, including a live reasoning trace, guardrail events, and the final schedule pushed into the legacy PawPal+ persistence layer.
 
-> 🎥 **Loom walkthrough:** _<https://loom.com/share/...>_ &nbsp;_(placeholder — paste link before submission)_
+<video src="assets/PawPal_Final%20_Project.mp4" controls width="720"></video>
+
+> If the inline player doesn't render in your viewer, download or open the file directly: [`assets/PawPal_Final _Project.mp4`](assets/PawPal_Final%20_Project.mp4).
 
 ---
 
