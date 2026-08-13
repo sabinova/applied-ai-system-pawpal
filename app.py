@@ -1,4 +1,14 @@
+import os
 import streamlit as st
+
+# Bridge Streamlit Cloud secrets into env vars so the Anthropic SDK
+# (which reads ANTHROPIC_API_KEY from os.environ) works on both
+# local dev (.env) and Streamlit Community Cloud (st.secrets).
+try:
+    if "ANTHROPIC_API_KEY" in st.secrets:
+        os.environ.setdefault("ANTHROPIC_API_KEY", st.secrets["ANTHROPIC_API_KEY"])
+except FileNotFoundError:
+    pass
 
 from pawpal_system import Task, Pet, Owner, Scheduler
 
